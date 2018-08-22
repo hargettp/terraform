@@ -25,6 +25,14 @@ type LocalState struct {
 	Path    string
 	PathOut string
 
+	// PasswordFilePath is the location of a password file
+	// used to encrypt / decrypt state, when provided
+	PasswordFilePath string
+
+	// If true, then state should be written out encrypted, otherwise written
+	// out as cleartext or decrypted
+	Seal bool
+
 	// the file handle corresponding to PathOut
 	stateFileOut *os.File
 
@@ -99,7 +107,7 @@ func (s *LocalState) WriteState(state *terraform.State) error {
 		s.state.Serial++
 	}
 
-	if err := terraform.WriteState(s.state, s.stateFileOut); err != nil {
+	if err := terraform.WriteSealedState(s.state, s.stateFileOut, s.PasswordFilePath, s.Seal); err != nil {
 		return err
 	}
 
@@ -160,7 +168,7 @@ func (s *LocalState) RefreshState() error {
 		reader = s.stateFileOut
 	}
 
-	state, err := terraform.ReadState(reader)
+	state, err := terraform.ReadSealedState(reader, s.PasswordFilePath)
 	// if there's no state we just assign the nil return value
 	if err != nil && err != terraform.ErrNoState {
 		return err

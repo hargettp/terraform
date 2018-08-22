@@ -37,6 +37,14 @@ type Local struct {
 	CLI      cli.Ui
 	CLIColor *colorstring.Colorize
 
+	// PasswordFilePath is the location of a password file
+	// used to encrypt / decrypt state, when provided
+	PasswordFilePath string
+
+	// If true, then state should be written out encrypted, otherwise written
+	// out as cleartext or decrypted
+	Seal bool
+
 	// The State* paths are set from the backend config, and may be left blank
 	// to use the defaults. If the actual paths for the local backend state are
 	// needed, use the StatePaths method.
@@ -111,6 +119,12 @@ func NewWithBackend(backend backend.Backend) *Local {
 				Type:     schema.TypeString,
 				Optional: true,
 				Default:  "",
+			},
+
+			"seal": &schema.Schema{
+				Type:     schema.TypeBool,
+				Optional: true,
+				Default:  false,
 			},
 
 			"workspace_dir": &schema.Schema{
@@ -409,6 +423,64 @@ func (b *Local) Colorize() *colorstring.Colorize {
 		Colors:  colorstring.DefaultColors,
 		Disable: true,
 	}
+}
+
+func (b *Local) schemaConfigure(ctx context.Context) error {
+	d := schema.FromContextBackendConfig(ctx)
+
+	passwordFilePathRaw, ok := d.GetOk("password_file_path")
+	if ok {
+		passwordFilePath := passwordFilePathRaw.(string)
+		if passwordFilePath == "" {
+			log.Printf("[WARN] Configured password file path is %v", passwordFilePath)
+			return fmt.Errorf("configured password_file_path is empty")
+		}
+		log.Printf("[INFO] Using password file; will encrypte state: %v\n", passwordFilePath)
+		b.PasswordFilePath = passwordFilePath
+	} else {
+		log.Printf("[INFO] Not using pasword file, so not decrypting state\n")
+	}
+
+	seal, ok := d.GetOk("seal")
+	if ok {
+		value, ok := seal.(bool)
+		if ok {
+			b.Seal = value
+		} else {
+			log.Printf("[INFO] Seal flag not boolean; will not write sealed state\n")
+		}
+	} else {
+		log.Printf("[INFO] Seal flag not set; will not write sealed state\n")
+	}
+
+	// Set the path if it is set
+	pathRaw, ok := d.GetOk("path")
+	if ok {
+		path := pathRaw.(string)
+		if path == "" {
+			return fmt.Errorf("configured path is empty")
+		}
+
+		b.StatePath = path
+		b.StateOutPath = path
+	}
+
+	if raw, ok := d.GetOk("workspace_dir"); ok {
+		path := raw.(string)
+		if path != "" {
+			b.StateWorkspaceDir = path
+		}
+	}
+
+	// Legacy name, which ConflictsWith workspace_dir
+	if raw, ok := d.GetOk("environment_dir"); ok {
+		path := raw.(string)
+		if path != "" {
+			b.StateWorkspaceDir = path
+		}
+	}
+
+	return nil
 }
 
 // StatePaths returns the StatePath, StateOutPath, and StateBackupPath as
